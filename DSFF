@@ -1,0 +1,56 @@
+import sys
+import cv2  
+import os
+
+#параметры файла
+videoFile = r"D:\27 4.avi" #Путь к файлу
+vidcap = cv2.VideoCapture(videoFile)
+success,image = vidcap.read()
+
+#Настройка  
+
+seconds = 0.1 #время 
+fps = vidcap.get(cv2.CAP_PROP_FPS) # Получаем кадры в секунду
+multiplier = fps * seconds
+
+#Начало метода
+
+while success:
+    frameId = int(round(vidcap.get(1))) #настояций номер кадра, округленный 
+    success, image = vidcap.read()
+
+    if frameId % multiplier == 0:
+         cv2.imwrite(r"C:\Users\321\%d.jpg" % frameId, image)
+
+ vidcap.release()
+
+ frames= r'C:\Users\321' # Путь к вашей папке
+ # Получим список имен всего содержимого папки
+ # и превратим их в абсолютные пути
+ dir_list = [os.path.join(frames, x) for x in os.listdir(frames)]
+
+ if dir_list:
+     # Создадим список из путей к файлам и дат их создания.
+     date_list = [[x, os.path.getctime(x)] for x in dir_list]
+
+     # Отсортируем список по дате создания в обратном порядке и в обычном порядке
+    sort_date_list_min = sorted(date_list, key=lambda x: x[1], reverse=False)
+    sort_date_list_max = sorted(date_list, key=lambda x: x[1], reverse=True)
+
+    # Уберем путь, отстанется только нужное нам число из имени файла
+    a=int(os.path.basename(os.path.splitext(sort_date_list_min[0][0])[0]))
+    b=int(os.path.basename(os.path.splitext(sort_date_list_max[0][0])[0]))  
+
+
+ frames = [ os.path.join(frames, '{}.jpg'.format(i)) for i in range(a, b) ]
+ frame = cv2.imread(frames[0]) 
+ writer = cv2.VideoWriter( r'C:\Users\VIDEO\KICaserfsdfsd.mp4',
+    cv2.VideoWriter_fourcc(*'MJPG'),   # кодек
+    25.0,  # fps
+    (frame.shape[1], frame.shape[0]),  # ширина, высота кадра
+    isColor=len(frame.shape) > 2)
+for frame in map(cv2.imread, frames):
+    writer.write(frame)
+writer.release()
+cv2.destroyAllWindows()
+print ("Завершено")
