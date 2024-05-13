@@ -1,0 +1,120 @@
+import cv2
+import numpy as np
+import csv
+import matplotlib.pyplot as plt
+
+# Функция квантования цвета методом k-средних
+def kmeans_color_quantization(image, k):
+    # Преобразование изображения в HSV
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+    pixel_values = hsv_image.reshape((-1, 3))
+    pixel_values = np.float32(pixel_values)
+
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
+    _, labels, centers = cv2.kmeans(pixel_values, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+
+    centers = np.uint8(centers)
+    quantized_image = centers[labels.flatten()]
+    quantized_image = quantized_image.reshape(image.shape)
+
+    masks = []
+    for center in centers:
+        mask = cv2.inRange(quantized_image, center, center)
+        masks.append(mask)
+
+    for i, mask in enumerate(masks):
+        masked_image = cv2.bitwise_and(image, image, mask=mask)
+        cv2.imshow(f'Cluster {i + 1}', masked_image)
+
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    return quantized_image, centers
+
+# Функция обучения трекера
+def train_tracker(frame, term_criteria):
+    window_name = 'Select ROI'
+    x, y, w, h = cv2.selectROI(window_name, frame, showCrosshair=False, fromCenter=False)
+    hsv_roi = cv2.cvtColor(frame[y:y + h, x:x + w], cv2.COLOR_BGR2HSV)
+    roi_hist = cv2.calcHist([hsv_roi], [0], None, [180], [0, 180])
+    roi_hist = cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
+    init_pos = (x, y, w, h)
+    return roi_hist, init_pos
+
+# Функция для вычисления плавности движения объекта на кадре
+def calculate_motion_smoothness(frame_hsv, object_mask):
+    v_channel = frame_hsv[:,:,2]
+    object_pixels = v_channel[object_mask > 0]
+    motion_smoothness = np.std(object_pixels)
+    return motion_smoothness
+
+# Открываем файл для записи результатов
+with open('../../tracking_results.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(['Time (ms)', 'X Coordinate', 'Y Coordinate'])
+
+    cap = cv2.VideoCapture('video/nostab.mp4')
+
+    ret, frame = cap.read()
+    if not ret:
+        print("Не удалось прочитать видео")
+        exit()
+
+    init_pos = None
+    term_criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 1)
+    positions = []
+    smoothness_values = []  # Список для хранения значений плавности движения объекта
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        if init_pos is None:
+            roi_hist, init_pos = train_tracker(frame, term_criteria)
+
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        dst = cv2.calcBackProject([hsv], [0], roi_hist, [0, 180], 1)
+
+        if init_pos[2] > 0 and init_pos[3] > 0:
+            _, track_window = cv2.meanShift(dst, init_pos, term_criteria)
+            x, y, w, h = track_window
+
+            time = cap.get(cv2.CAP_PROP_POS_MSEC)
+
+            # Вычисление маски объекта
+            mask = np.zeros_like(hsv[:,:,0])
+            mask[y:y+h, x:x+w] = 255
+
+            # Вычисление плавности движения объекта
+            motion_smoothness = calculate_motion_smoothness(hsv, mask)
+
+            writer.writerow([time, x + w // 2, y + h // 2])
+            positions.append((time, x + w // 2, y + h // 2))
+
+            # Добавление значения плавности в список
+            smoothness_values.append(motion_smoothness)
+
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.imshow('Object Tracking', frame)
+
+        key = cv2.waitKey(30) & 0xFF
+        if key == ord('q'):
+            break
+
+    cv2.destroyAllWindows()
+    cap.release()
+
+    positions = np.array(positions)
+    plt.plot(positions[:, 0], positions[:, 1], label='X координата')
+    plt.plot(positions[:, 0], positions[:, 2], label='Y координата')
+    plt.xlabel('время (ms)')
+    plt.ylabel('координаты')
+    plt.title('график движения объекта в кадре')
+    plt.legend()
+    plt.show()
+
+    # Вычисление общей плавности движения объекта для всего видео
+    total_smoothness = np.mean(smoothness_values)
+    print("Общая плавность движения объекта для всего видео:", total_smoothness)
